@@ -1,190 +1,101 @@
 <?php
-// Start session to manage user login
 session_start();
+include 'db.php';
+include 'functions.php';
+include 'sidebar.php';
 
-// Check if user is logged in, if not redirect to login page
-if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
-    header("location: login.php");
-    exit;
+if (!isset($_SESSION['id'])) {
+    header("Location: login.php");
+    exit();
 }
 
-// Include database connection
-require_once "config.php";
-
-// Automatically fix incorrect user_id for all students
-$sql_fix = "UPDATE borrowings AS br
-            JOIN students AS s ON br.user_id = s.id
-            SET br.user_id = s.id
-            WHERE br.book_id IN (SELECT DISTINCT book_id FROM borrowings)";
-if (!$conn->query($sql_fix)) {
-    echo "Error updating user IDs: " . $conn->error;
+if (!isset($_GET['id'])) {
+    header("Location: students.php");
+    exit();
 }
 
-// Automatically mark overdue books as returned
-$sql_overdue = "UPDATE borrowings SET returned = 1 WHERE return_date < CURDATE() AND returned = 0";
-if (!$conn->query($sql_overdue)) {
-    echo "Error updating overdue books: " . $conn->error;
+$student_id = mysqli_real_escape_string($conn, $_GET['id']);
+$query = "SELECT * FROM students WHERE id = '$student_id'";
+$result = mysqli_query($conn, $query);
+$student = mysqli_fetch_assoc($result);
+
+if (!$student) {
+    header("Location: students.php");
+    exit();
 }
 
-// Function to count books by status
-function countBooksByStatus($conn, $status) {
-    $sql = "SELECT COUNT(*) as count FROM books WHERE status = ?";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("s", $status);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $row = $result->fetch_assoc();
-    return $row["count"];
-}
-
-// Count total books
-$sql = "SELECT COUNT(*) as total FROM books";
-$result = $conn->query($sql);
-$totalBooks = $result->fetch_assoc()["total"];
-
-// Count borrowed books
-$borrowedBooks = countBooksByStatus($conn, "borrowed");
-
-// Count available books
-$availableBooks = countBooksByStatus($conn, "available");
-
-// Count overdue books using safer query
-$sql = "SELECT COUNT(*) as overdue FROM borrowings 
-        WHERE return_date < CURDATE() AND returned = 0 AND book_id IN 
-        (SELECT id FROM books)";
-$result = $conn->query($sql);
-$overdueBooks = $result->fetch_assoc()["overdue"];
-
-// Get recently borrowed books using correct student data
-$sql = "SELECT b.title, s.name AS student_name, br.borrow_date, br.due_date 
-        FROM borrowings br 
-        JOIN books b ON br.book_id = b.id 
-        JOIN students s ON br.user_id = s.id 
-        WHERE br.returned = 0 
-        ORDER BY br.borrow_date DESC LIMIT 5";
-$recentBorrowings = $conn->query($sql);
-
-// Get books with poor condition
-$sql = "SELECT id, title, condition_status FROM books WHERE condition_status IN ('Poor', 'Damaged') LIMIT 5";
-$poorConditionBooks = $conn->query($sql);
+// Department options
+$departments = ['SBA', 'SEA', 'SED', 'SNAMS', 'HTM', 'SOC', 'SAS', 'CJEF', 'BED'];
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HAU Library Management System</title>
-    <link rel="stylesheet" href="styles.css">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Edit Student</title>
+    <link rel="stylesheet" href="styles.css" />
 </head>
 
 <body>
     <div class="container">
-        <?php include "sidebar.php"; ?>
-
+        <?php include 'sidebar.php'; ?>
         <div class="main-content">
             <header>
-                <h1>HAU Library Management System</h1>
-                <div class="user-info">
-                    <span>Welcome To HAU Library, <?php echo htmlspecialchars($_SESSION["name"]); ?></span>
-                    <a href="logout.php" class="logout-btn">Logout</a>
-                </div>
+                <h1>Edit Student</h1>
+                <a href="students.php" class="btn secondary-btn">Back to Students</a>
             </header>
 
-            <div class="dashboard">
-                <h2>Dashboard Overview</h2>
+            <div class="content-box">
+                <form action="update_students.php" method="post">
+                    <input type="hidden" name="id" value="<?= htmlspecialchars($student['id']); ?>" />
 
-                <div class="stats-container">
-                    <div class="stat-card">
-                        <h3>Total Books</h3>
-                        <p class="stat-number"><?php echo $totalBooks; ?></p>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Available Books</h3>
-                        <p class="stat-number"><?php echo $availableBooks; ?></p>
-                    </div>
-                    <div class="stat-card">
-                        <h3>Borrowed Books</h3>
-                        <p class="stat-number"><?php echo $borrowedBooks; ?></p>
-                    </div>
-                    <div class="stat-card alert">
-                        <h3>Overdue Books</h3>
-                        <p class="stat-number"><?php echo $overdueBooks; ?></p>
-                    </div>
-                </div>
-
-                <div class="recent-activity">
-                    <div class="activity-section">
-                        <h3>Recent Borrowings</h3>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Book Title</th>
-                                    <th>Borrower</th>
-                                    <th>Borrow Date</th>
-                                    <th>Due Date</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php
-                                if ($recentBorrowings->num_rows > 0) {
-                                    while ($row = $recentBorrowings->fetch_assoc()) {
-                                        echo "<tr>";
-                                        echo "<td>" . htmlspecialchars($row["title"]) . "</td>";
-                                        echo "<td>" . htmlspecialchars($row["student_name"]) . "</td>"; // Fixed here
-                                        echo "<td>" . htmlspecialchars($row["borrow_date"]) . "</td>";
-                                        echo "<td>" . htmlspecialchars($row["due_date"]) . "</td>";
-                                        echo "</tr>";
-                                    }
-                                } else {
-                                    echo "<tr><td colspan='4'>No recent borrowings</td></tr>";
-                                }
-                                ?>
-                            </tbody>
-                        </table>
+                    <div class="form-group">
+                        <label for="student_id">Student ID</label>
+                        <input type="text" id="student_id" name="student_id" class="form-control" value="<?= htmlspecialchars($student['student_id']); ?>" required />
                     </div>
 
-                    <div class="activity-section">
-                        <h3>Books in Poor Condition</h3>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Book ID</th>
-                                    <th>Title</th>
-                                    <th>Condition</th>
-                                    <th>Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php
-                                if ($poorConditionBooks->num_rows > 0) {
-                                    while ($row = $poorConditionBooks->fetch_assoc()) {
-                                        echo "<tr>";
-                                        echo "<td>" . htmlspecialchars($row["id"]) . "</td>";
-                                        echo "<td>" . htmlspecialchars($row["title"]) . "</td>";
-                                        echo "<td class='condition-" . strtolower($row["condition_status"]) . "'>" . htmlspecialchars($row["condition_status"]) . "</td>";
-                                        echo "<td><a href='update_condition.php?id=" . $row["id"] . "' class='btn'>Update</a></td>";
-                                        echo "</tr>";
-                                    }
-                                } else {
-                                    echo "<tr><td colspan='4'>No books in poor condition</td></tr>";
-                                }
-                                ?>
-                            </tbody>
-                        </table>
+                    <div class="form-group">
+                        <label for="name">Name</label>
+                        <input type="text" id="name" name="name" class="form-control" value="<?= htmlspecialchars($student['name']); ?>" required />
                     </div>
-                </div>
 
-                <div class="quick-actions">
-                    <h3>Quick Actions</h3>
-                    <div class="action-buttons">
-                        <a href="borrow.php" class="action-btn">Issue Book</a>
-                        <a href="return.php" class="action-btn">Return Book</a>
-                        <a href="add_books.php" class="action-btn">Add New Book</a>
-                        <a href="overdue.php" class="action-btn alert-btn">View Overdue Books</a>
+                    <div class="form-group">
+                        <label for="email">Email</label>
+                        <input type="email" id="email" name="email" class="form-control" value="<?= htmlspecialchars($student['email']); ?>" required />
                     </div>
-                </div>
+
+                    <div class="form-group">
+                        <label for="course">Course</label>
+                        <input type="text" id="course" name="course" class="form-control" value="<?= htmlspecialchars($student['course']); ?>" required />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="department">Department</label>
+                        <select id="department" name="department" class="form-control" required>
+                            <option value="">Select Department</option>
+                            <?php foreach ($departments as $dept) : ?>
+                                <option value="<?= $dept ?>" <?= $student['department'] === $dept ? 'selected' : '' ?>><?= $dept ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="year_level">Year Level</label>
+                        <input type="number" id="year_level" name="year_level" class="form-control" value="<?= htmlspecialchars($student['year_level']); ?>" min="1" max="5" required />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="contact_number">Contact Number</label>
+                        <input type="text" id="contact_number" name="contact_number" class="form-control" value="<?= htmlspecialchars($student['contact_number']); ?>" required />
+                    </div>
+
+                    <div class="submit-group">
+                        <button type="submit" class="btn primary-btn">Update Student</button>
+                        <a href="students.php" class="btn">Cancel</a>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
