@@ -195,7 +195,7 @@ $poorConditionBooks = $conn->query($sql);
                     <h3>Quick Actions</h3>
                     <div class="action-buttons">
                         <a href="borrow.php" class="action-btn">Issue Book</a>
-                        <a href="return.php" class="action-btn">Return Book</a>
+                        <a href="borrow.php" class="action-btn">Return Book</a>
                         <a href="add_books.php" class="action-btn">Add New Book</a>
                         <a href="overdue.php" class="action-btn alert-btn">View Overdue Books</a>
                     </div>
